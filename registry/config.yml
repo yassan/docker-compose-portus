@@ -1,0 +1,32 @@
+version: 0.1
+storage:
+  filesystem:
+    rootdirectory: /var/lib/registry
+  delete:
+    enabled: true
+http:
+  addr: 0.0.0.0:5000
+  secret: b494a25faa8d22e430e843e220e424e10ac84d2ce0e64231f5b636d21251eb6d267ad
+  debug:
+    addr: 0.0.0.0:5001
+    prometheus:
+      enabled: true
+      path: /metrics
+  headers:
+      X-Content-Type-Options: [ "nosniff" ]
+health:
+  storagedriver:
+    enabled: true
+    interval: 10s
+    threshold: 3
+hooks:
+  - type: mail
+    levels:
+      - panic
+    options:
+      smtp:
+        addr: my-postfix.example.com:25
+        insecure: true
+      from: registry@example.com
+      to:
+        - admin@example.com
