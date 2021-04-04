@@ -1,0 +1,89 @@
+version: "3"
+
+services:
+  portus:
+    image: opensuse/portus:head
+    env_file:
+      - ./portus.env
+    ports:
+      - 3000:3000
+    links:
+      - db
+    volumes:
+      - ./certificates:/certificates:ro
+      - ./secrets:/secrets:ro
+      - static:/srv/Portus/public
+
+  background:
+    image: opensuse/portus:head
+    depends_on:
+      - portus
+      - db
+    env_file:
+      - ./portus.env
+    environment:
+      - PORTUS_BACKGROUND=true
+    links:
+      - db
+    volumes:
+      - ./certificates:/certificates:ro
+      - ./secrets:/secrets:ro
+
+  db:
+    image: library/mariadb:10.0.23
+    command: mysqld --character-set-server=utf8 --collation-server=utf8_unicode_ci --init-connect='SET NAMES UTF8;' --innodb-flush-log-at-trx-commit=0
+    environment:
+      - MYSQL_DATABASE=portus_production
+      - MYSQL_ROOT_PASSWORD_FILE=/secrets/portus_db_password
+    volumes:
+      - /var/lib/portus/mariadb:/var/lib/mysql
+      - ./secrets:/secrets:ro
+
+  registry:
+    image: library/registry:2.7.1
+    command: ["/bin/sh", "/etc/docker/registry/init"]
+    environment:
+      # Authentication
+      REGISTRY_AUTH_TOKEN_REALM: https://${MACHINE_FQDN}/v2/token
+      REGISTRY_AUTH_TOKEN_SERVICE: ${MACHINE_FQDN}
+      REGISTRY_AUTH_TOKEN_ISSUER: ${MACHINE_FQDN}
+      REGISTRY_AUTH_TOKEN_ROOTCERTBUNDLE: /certificates/portus.crt
+
+      # SSL
+      REGISTRY_HTTP_TLS_CERTIFICATE: /certificates/portus.crt
+      REGISTRY_HTTP_TLS_KEY: /certificates/portus.key
+
+      # Portus endpoint
+      REGISTRY_NOTIFICATIONS_ENDPOINTS: >
+        - name: portus
+          url: https://${MACHINE_FQDN}/v2/webhooks/events
+          timeout: 2000ms
+          threshold: 5
+          backoff: 1s
+    volumes:
+      - /var/lib/portus/registry:/var/lib/registry
+      - ./certificates:/certificates:ro
+      - ./registry/config.yml:/etc/docker/registry/config.yml:ro
+      - ./registry/init:/etc/docker/registry/init:ro
+    ports:
+      - 5000:5000
+      - 5001:5001 # required to access debug service
+    links:
+      - portus:portus
+
+  nginx:
+    image: library/nginx:alpine
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./certificates:/certificates:ro
+      - static:/srv/Portus/public:ro
+    ports:
+      - 80:80
+      - 443:443
+    links:
+      - registry:registry
+      - portus:portus
+
+volumes:
+  static:
+    driver: local
